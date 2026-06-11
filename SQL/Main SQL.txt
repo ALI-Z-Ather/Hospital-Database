@@ -1,0 +1,412 @@
+--------------------------------------------------
+-- CREATE DATABASE (if not exists)
+--------------------------------------------------
+
+IF NOT EXISTS (
+    SELECT name 
+    FROM sys.databases 
+    WHERE name = 'Ivor_Paine_Memorial_Hospital'
+)
+BEGIN
+    CREATE DATABASE Ivor_Paine_Memorial_Hospital;
+END;
+GO
+
+
+--------------------------------------------------
+-- USE DATABASE
+--------------------------------------------------
+
+USE Ivor_Paine_Memorial_Hospital;
+GO
+
+--------------------------------------------------
+-- DROP TABLES
+--------------------------------------------------
+
+-- Break Circular Dependencies
+IF OBJECT_ID('CAREUNIT', 'U') IS NOT NULL 
+    ALTER TABLE CAREUNIT DROP CONSTRAINT IF EXISTS fk_nurse_incharge;
+
+IF OBJECT_ID('TEAMOFDOCTORS', 'U') IS NOT NULL 
+    ALTER TABLE TEAMOFDOCTORS DROP CONSTRAINT IF EXISTS fk_leader;
+
+-- Drop Relationship Tables 
+IF OBJECT_ID('ADMITTED', 'U') IS NOT NULL DROP TABLE ADMITTED;
+IF OBJECT_ID('TREATMENTDONEBY', 'U') IS NOT NULL DROP TABLE TREATMENTDONEBY;
+IF OBJECT_ID('DOCTOR_EXPERIENCE', 'U') IS NOT NULL DROP TABLE DOCTOR_EXPERIENCE;
+IF OBJECT_ID('DOCTOR_PROGRESS', 'U') IS NOT NULL DROP TABLE DOCTOR_PROGRESS;
+
+-- Drop Dependent Medical Tables
+IF OBJECT_ID('TREATMENT', 'U') IS NOT NULL DROP TABLE TREATMENT;
+IF OBJECT_ID('COMPLAINT', 'U') IS NOT NULL DROP TABLE COMPLAINT;
+IF OBJECT_ID('BED', 'U') IS NOT NULL DROP TABLE BED;
+IF OBJECT_ID('PATIENT', 'U') IS NOT NULL DROP TABLE PATIENT;
+
+-- Drop Staff Tables (Inheritance)
+IF OBJECT_ID('CONSULTANT', 'U') IS NOT NULL DROP TABLE CONSULTANT;
+IF OBJECT_ID('DOCTOR', 'U') IS NOT NULL DROP TABLE DOCTOR;
+IF OBJECT_ID('TEAMOFDOCTORS', 'U') IS NOT NULL DROP TABLE TEAMOFDOCTORS;
+
+IF OBJECT_ID('NURSE', 'U') IS NOT NULL DROP TABLE NURSE;
+IF OBJECT_ID('CAREUNIT', 'U') IS NOT NULL DROP TABLE CAREUNIT;
+
+-- Drop Base Tables
+IF OBJECT_ID('WARD', 'U') IS NOT NULL DROP TABLE WARD;
+IF OBJECT_ID('SPECIALITY', 'U') IS NOT NULL DROP TABLE SPECIALITY;
+
+--------------------------------------------------
+-- Table Creations
+--------------------------------------------------
+
+-- Speciality (Parent table for Wards and Consultants)
+CREATE TABLE SPECIALITY (
+    specialityName VARCHAR(100) PRIMARY KEY
+);
+
+-- Ward
+CREATE TABLE WARD (
+    wardName VARCHAR(100) PRIMARY KEY,
+    specialityName VARCHAR(100),
+    FOREIGN KEY (specialityName) REFERENCES SPECIALITY(specialityName)
+);
+
+-- CareUnit
+CREATE TABLE CAREUNIT (
+    careUnitID INT PRIMARY KEY,
+    wardName VARCHAR(100),
+    inChargeNurseID INT, 
+    FOREIGN KEY (wardName) REFERENCES WARD(wardName)
+);
+
+-- Nurse 
+CREATE TABLE NURSE (
+    nurseID INT PRIMARY KEY,
+    staffType VARCHAR(50),
+    serviceTime TIME,
+    careUnitID INT,
+    FOREIGN KEY (careUnitID) REFERENCES CAREUNIT(careUnitID)
+);
+
+-- Adding circular dependency for CareUnit In-Charge
+ALTER TABLE CAREUNIT ADD CONSTRAINT fk_nurse_incharge 
+FOREIGN KEY (inChargeNurseID) REFERENCES NURSE(nurseID);
+
+-- Bed
+CREATE TABLE BED (
+    bedNo INT PRIMARY KEY,
+    careUnitID INT,
+    FOREIGN KEY (careUnitID) REFERENCES CAREUNIT(careUnitID)
+);
+
+-- Patient
+CREATE TABLE PATIENT (
+    patientNo INT PRIMARY KEY,
+    patientName VARCHAR(100),
+    DOB DATE,
+    careUnitID INT,
+    FOREIGN KEY (careUnitID) REFERENCES CAREUNIT(careUnitID)
+);
+
+-- TeamOfDoctors
+CREATE TABLE TEAMOFDOCTORS (
+    SNo INT PRIMARY KEY,
+    leaderDoctorNo INT 
+);
+
+-- Doctor 
+CREATE TABLE DOCTOR (
+    doctorNo INT PRIMARY KEY,
+    doctorName VARCHAR(100),
+    teamID INT,
+    position VARCHAR(50),
+    dateOfJoin DATE,
+    FOREIGN KEY (teamID) REFERENCES TEAMOFDOCTORS(SNo)
+);
+
+-- Adding leader constraint back to Doctor
+ALTER TABLE TEAMOFDOCTORS ADD CONSTRAINT fk_leader 
+FOREIGN KEY (leaderDoctorNo) REFERENCES DOCTOR(doctorNo);
+
+-- Consultant (Specialization of Doctor)
+CREATE TABLE CONSULTANT (
+    doctorNo INT PRIMARY KEY,
+    specialityName VARCHAR(100),
+    FOREIGN KEY (doctorNo) REFERENCES DOCTOR(doctorNo),
+    FOREIGN KEY (specialityName) REFERENCES SPECIALITY(specialityName)
+);
+
+-- Doctor Experience 
+CREATE TABLE DOCTOR_EXPERIENCE (
+    doctorNo INT,
+    fromDate DATE,
+    toDate DATE,
+    position VARCHAR(50),
+    establishment VARCHAR(100),
+    PRIMARY KEY (doctorNo, fromDate),
+    FOREIGN KEY (doctorNo) REFERENCES DOCTOR(doctorNo)
+);
+
+-- Doctor Progress 
+CREATE TABLE DOCTOR_PROGRESS (
+    doctorNo INT,
+    date DATE,
+    grade VARCHAR(10),
+    PRIMARY KEY (doctorNo, date),
+    FOREIGN KEY (doctorNo) REFERENCES DOCTOR(doctorNo)
+);
+
+-- Complaint
+CREATE TABLE COMPLAINT (
+    complaintCode INT PRIMARY KEY,
+    complaintType VARCHAR(100),
+    patientNo INT,
+    FOREIGN KEY (patientNo) REFERENCES PATIENT(patientNo)
+);
+
+-- Treatment
+CREATE TABLE TREATMENT (
+    treatmentCode INT PRIMARY KEY,
+    startDate DATE,
+    endDate DATE,
+    complaintCode INT,
+    FOREIGN KEY (complaintCode) REFERENCES COMPLAINT(complaintCode)
+);
+
+-- TreatmentDoneBy (M:N Relationship between Doctor and Treatment)
+CREATE TABLE TREATMENTDONEBY (
+    doctorID INT,
+    treatmentCode INT,
+    fromDate DATE,
+    toDate DATE,
+    PRIMARY KEY (doctorID, treatmentCode),
+    FOREIGN KEY (doctorID) REFERENCES DOCTOR(doctorNo),
+    FOREIGN KEY (treatmentCode) REFERENCES TREATMENT(treatmentCode)
+);
+
+-- Admitted (Linking Patient, Bed, and Consultant)
+CREATE TABLE ADMITTED (
+    patientNo INT,
+    SNo INT,
+    bedNo INT,
+    dateAdmitted DATE,
+    consultantDoctorNo INT,
+    PRIMARY KEY (patientNo, SNo, bedNo),
+    FOREIGN KEY (patientNo) REFERENCES PATIENT(patientNo),
+    FOREIGN KEY (bedNo) REFERENCES BED(bedNo),
+    FOREIGN KEY (consultantDoctorNo) REFERENCES CONSULTANT(doctorNo)
+);
+
+--------------------------------------------------
+-- DATA INSERTIONS
+--------------------------------------------------
+
+-- Specialities and Wards
+INSERT INTO SPECIALITY (specialityName) VALUES 
+('Cardiology'), 
+('Neurology'), 
+('Pediatrics'), 
+('Oncology'), 
+('Radiology'), 
+('Orthopedics'),
+('Dermatology'), 
+('Gastroenterology'), 
+('Psychiatry'), 
+('Urology'),
+('General Surgery'), 
+('ENT'), 
+('Internal Medicine'), 
+('Gynecology'), 
+('Nephrology'),
+('Ophthalmology'), 
+('Endocrinology'), 
+('Pulmonology'), 
+('Rheumatology'), 
+('Emergency Medicine');
+
+INSERT INTO WARD (wardName, specialityName) VALUES 
+('Heart Wing', 'Cardiology'), 
+('Brain Center', 'Neurology'), 
+('KidZone', 'Pediatrics'),
+('Tumor Clinic', 'Oncology'), 
+('X-Ray Block', 'Radiology'), 
+('Bone Ward', 'Orthopedics'),
+('Skin Clinic', 'Dermatology'), 
+('Gut Unit', 'Gastroenterology'), 
+('Mind Oasis', 'Psychiatry'),
+('Surgery East', 'General Surgery'), 
+('ICU Alpha', 'Internal Medicine'), 
+('Maternity A', 'Gynecology'),
+('Renal Hub', 'Nephrology'), 
+('Eye Annex', 'Ophthalmology'), 
+('ER Front', 'Emergency Medicine');
+
+-- CareUnits & Beds
+-- inChargeNurseID is initially NULL to handle the circular dependency
+INSERT INTO CAREUNIT (careUnitID, wardName, inChargeNurseID) VALUES 
+    (101, 'Heart Wing', NULL), 
+    (102, 'Brain Center', NULL), 
+    (103, 'KidZone', NULL), 
+    (104, 'Tumor Clinic', NULL),
+    (105, 'X-Ray Block', NULL), 
+    (106, 'Bone Ward', NULL), 
+    (107, 'Skin Clinic', NULL), 
+    (108, 'Gut Unit', NULL),
+    (109, 'Mind Oasis', NULL), 
+    (110, 'Surgery East', NULL), 
+    (111, 'ICU Alpha', NULL), 
+    (112, 'Maternity A', NULL),
+    (113, 'Renal Hub', NULL), 
+    (114, 'Eye Annex', NULL), 
+    (115, 'ER Front', NULL);
+
+INSERT INTO BED (bedNo, careUnitID) VALUES 
+    (1, 101), 
+    (2, 101), 
+    (3, 102), 
+    (4, 102), 
+    (5, 103), 
+    (6, 103), 
+    (7, 104), 
+    (8, 104), 
+    (9, 105), 
+    (10, 105),
+    (11, 106), 
+    (12, 107), 
+    (13, 108), 
+    (14, 109), 
+    (15, 110), 
+    (16, 111), 
+    (17, 112), 
+    (18, 113), 
+    (19, 114), 
+    (20, 115);
+
+-- Staffing (Nurses & Doctors)
+INSERT INTO NURSE (nurseID, staffType, serviceTime, careUnitID) VALUES 
+    (501, 'Senior', '08:00:00', 101), 
+    (502, 'Junior', '16:00:00', 102), 
+    (503, 'Senior', '00:00:00', 103),
+    (504, 'Senior', '08:00:00', 104), 
+    (505, 'Junior', '16:00:00', 105), 
+    (506, 'Senior', '00:00:00', 106),
+    (507, 'Junior', '08:00:00', 107), 
+    (508, 'Senior', '16:00:00', 108), 
+    (509, 'Junior', '00:00:00', 109),
+    (510, 'Senior', '08:00:00', 110), 
+    (511, 'Junior', '16:00:00', 111), 
+    (512, 'Senior', '00:00:00', 112),
+    (513, 'Junior', '08:00:00', 113), 
+    (514, 'Senior', '16:00:00', 114), 
+    (515, 'Junior', '00:00:00', 115);
+
+-- Finalize CareUnit In-Charges now that Nurses exist
+UPDATE CAREUNIT SET inChargeNurseID = 501 WHERE careUnitID = 101;
+UPDATE CAREUNIT SET inChargeNurseID = 502 WHERE careUnitID = 102;
+UPDATE CAREUNIT SET inChargeNurseID = 503 WHERE careUnitID = 103;
+
+-- Teams (leaderDoctorNo initially NULL)
+INSERT INTO TEAMOFDOCTORS (SNo, leaderDoctorNo) VALUES 
+    (1, NULL), 
+    (2, NULL), 
+    (3, NULL), 
+    (4, NULL), 
+    (5, NULL), 
+    (6, NULL), 
+    (7, NULL), 
+    (8, NULL), 
+    (9, NULL), 
+    (10, NULL);
+
+INSERT INTO DOCTOR (doctorNo, doctorName, teamID, position, dateOfJoin) VALUES 
+    (901, 'Dr. Ali', 1, 'Senior Resident', '2020-01-15'), 
+    (902, 'Dr. Sara', 2, 'Consultant', '2018-05-20'),
+    (903, 'Dr. Ahmed', 3, 'Specialist', '2021-03-10'), 
+    (904, 'Dr. Zainab', 4, 'Consultant', '2015-11-02'),
+    (905, 'Dr. Bilal', 5, 'Junior Resident', '2023-06-12'), 
+    (906, 'Dr. Fatima', 6, 'Consultant', '2019-09-25'),
+    (907, 'Dr. Usman', 7, 'Specialist', '2022-02-14'), 
+    (908, 'Dr. Maryam', 8, 'Consultant', '2017-08-30'),
+    (909, 'Dr. Hamza', 9, 'Senior Resident', '2021-12-05'), 
+    (910, 'Dr. Noor', 10, 'Consultant', '2016-04-18');
+
+-- Specialized Doctors (Consultants)
+INSERT INTO CONSULTANT (doctorNo, specialityName) VALUES 
+    (902, 'Neurology'), 
+    (904, 'Cardiology'), 
+    (906, 'Pediatrics'), 
+    (908, 'Oncology'), 
+    (910, 'Radiology');
+
+-- Finalize Team Leaders
+UPDATE TEAMOFDOCTORS SET leaderDoctorNo = 902 WHERE SNo = 2;
+UPDATE TEAMOFDOCTORS SET leaderDoctorNo = 904 WHERE SNo = 4;
+
+-- 4. Patients (30 Realistic Entries)
+INSERT INTO PATIENT (patientNo, patientName, DOB, careUnitID) VALUES 
+    (1, 'John Doe', '1985-04-12', 101), 
+    (2, 'Jane Smith', '1992-08-30', 102), 
+    (3, 'Arif Khan', '1955-01-20', 103),
+    (4, 'Sana Ahmed', '2005-11-14', 101), 
+    (5, 'Omar Syed', '1978-03-05', 104), 
+    (6, 'Laila Noor', '2018-09-21', 103),
+    (7, 'Faisal Ali', '1962-07-12', 111), 
+    (8, 'Zoya Shah', '1999-12-25', 112), 
+    (9, 'Ali Raza', '1940-02-10', 105),
+    (10, 'Bina Khalid', '1988-06-18', 106), 
+    (11, 'Hamza Malik', '2023-01-15', 103), 
+    (12, 'Dua Khan', '1995-10-05', 115),
+    (13, 'Saad Ghaffar', '1972-04-22', 110), 
+    (14, 'Mona Abid', '1965-08-14', 113), 
+    (15, 'Tariq Aziz', '1950-12-30', 111),
+    (16, 'Sarah Ali', '1990-01-01', 101), 
+    (17, 'Kashif Mehmood', '1982-05-15', 102), 
+    (18, 'Nadia Pervez', '1975-09-20', 103),
+    (19, 'Bilal Iftikhar', '2010-03-12', 104), 
+    (20, 'Hina Jamil', '1968-11-28', 105), 
+    (21, 'Usman Dar', '1958-07-07', 106),
+    (22, 'Asma Farooq', '1994-02-25', 107), 
+    (23, 'Zafar Abbas', '1948-10-10', 108), 
+    (24, 'Rida Fatima', '2015-06-30', 103),
+    (25, 'Kamran Akmal', '1980-04-14', 109), 
+    (26, 'Sadia Imam', '1973-12-05', 110), 
+    (27, 'Imran Khan', '1960-01-20', 111),
+    (28, 'Bushra Maneka', '1970-03-05', 112), 
+    (29, 'Qasim Ali', '2020-08-15', 103), 
+    (30, 'Rabia Basri', '1935-09-12', 114);
+
+-- Admissions and Medical Records
+INSERT INTO ADMITTED (patientNo, SNo, bedNo, dateAdmitted, consultantDoctorNo) VALUES 
+    (1, 1, 1, '2026-04-20', 904), 
+    (2, 2, 3, '2026-04-21', 902), 
+    (3, 3, 5, '2026-04-22', 906),
+    (5, 4, 7, '2026-04-23', 908), 
+    (9, 5, 9, '2026-04-24', 910), 
+    (11, 6, 6, '2026-04-25', 906);
+
+INSERT INTO COMPLAINT (complaintCode, complaintType, patientNo) VALUES 
+    (2001, 'Chest Pain', 1), 
+    (2002, 'Migraine', 2), 
+    (2003, 'High Fever', 3), 
+    (2004, 'Abdominal Pain', 5);
+
+INSERT INTO TREATMENT (treatmentCode, startDate, endDate, complaintCode) VALUES 
+    (3001, '2026-04-20', '2026-04-25', 2001), 
+    (3002, '2026-04-21', '2026-04-22', 2002),
+    (3003, '2026-04-22', '2026-04-28', 2003), 
+    (3004, '2026-04-23', '2026-04-24', 2004);
+
+INSERT INTO TREATMENTDONEBY (doctorID, treatmentCode, fromDate, toDate) VALUES 
+    (901, 3001, '2026-04-20', '2026-04-25'), 
+    (904, 3001, '2026-04-20', '2026-04-25'), 
+    (902, 3002, '2026-04-21', '2026-04-22');
+
+-- Doctor Experience and Progress, which are multivalued
+INSERT INTO DOCTOR_EXPERIENCE (doctorNo, fromDate, toDate, position, establishment) VALUES 
+    (902, '2010-01-01', '2015-12-31', 'Resident', 'City General'), 
+    (902, '2016-01-01', '2018-04-30', 'Specialist', 'Metro Hospital');
+
+INSERT INTO DOCTOR_PROGRESS (doctorNo, date, grade) VALUES 
+    (901, '2021-01-01', 'A'), 
+    (901, '2022-01-01', 'A+'), 
+    (905, '2024-01-01', 'B');
